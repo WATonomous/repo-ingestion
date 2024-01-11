@@ -1,5 +1,5 @@
 import logging
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from github import Github
 from github.GithubException import GithubException
 from utils import set_up_logging, get_github_token, logger, IngestPayload, branch_prefix
@@ -19,6 +19,17 @@ def read_root():
 
 @app.post("/ingest")
 def ingest(payload: IngestPayload):
+    """
+    Ingests a payload and creates a PR.
+    TODO: add repo and file glob whitelists
+    """
+    # TODO: change these to regex validation
+    if not payload.repo:
+        raise HTTPException(status_code=400, detail="repo is required")
+    for file in payload.files:
+        if not file.path:
+            raise HTTPException(status_code=400, detail="file path is required")
+
     g = Github(get_github_token())
     logger.info(f"GitHub rate limit remaining: {g.rate_limiting[0]} / {g.rate_limiting[1]}")
     repo = g.get_repo(payload.repo)
@@ -47,8 +58,12 @@ def ingest(payload: IngestPayload):
             existing_file = None
 
         if existing_file:
-            logger.info(f"File {file.path} already exists. Updating...")
-            repo.update_file(existing_file.path, f"Create or update {file.path}", file.content, existing_file.sha, branch=branch_name)
+            # Compare the content to see if we need to update
+            if existing_file.decoded_content.decode() == file.content:
+                logger.info(f"File {file.path} already exists and is up to date")
+            else:
+                logger.info(f"File {file.path} already exists but is out of date. Updating...")
+                repo.update_file(existing_file.path, f"Create or update {file.path}", file.content, existing_file.sha, branch=branch_name)
         else:
             logger.info(f"File {file.path} does not exist. Creating...")
             repo.create_file(file.path, f"Create or update {file.path}", file.content, branch=branch_name)
