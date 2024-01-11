@@ -9,6 +9,7 @@ services:
       - GITHUB_APP_ID=${GITHUB_APP_ID:?}
       - GITHUB_APP_INSTALLATION_ID=${GITHUB_APP_INSTALLATION_ID:?}
       - GITHUB_APP_PRIVATE_KEY_PATH=/secrets/github-app-private-key.pem
+      - ALLOWED_INGEST_PAYLOADS=${ALLOWED_INGEST_PAYLOADS:?}
       - APP_LOG_LEVEL=DEBUG
     volumes:
       - ./src:/app:ro

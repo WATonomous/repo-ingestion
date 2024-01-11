@@ -2,7 +2,7 @@ import logging
 from fastapi import FastAPI, HTTPException
 from github import Github
 from github.GithubException import GithubException
-from utils import set_up_logging, get_github_token, logger, IngestPayload, branch_prefix
+from utils import set_up_logging, get_github_token, logger, IngestPayload, branch_prefix, validate_ingest_payload
 
 
 app = FastAPI()
@@ -21,14 +21,8 @@ def read_root():
 def ingest(payload: IngestPayload):
     """
     Ingests a payload and creates a PR.
-    TODO: add repo and file glob whitelists
     """
-    # TODO: change these to regex validation
-    if not payload.repo:
-        raise HTTPException(status_code=400, detail="repo is required")
-    for file in payload.files:
-        if not file.path:
-            raise HTTPException(status_code=400, detail="file path is required")
+    validate_ingest_payload(payload)
 
     g = Github(get_github_token())
     logger.info(f"GitHub rate limit remaining: {g.rate_limiting[0]} / {g.rate_limiting[1]}")

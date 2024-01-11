@@ -1,9 +1,12 @@
+import json
 import jwt
 import logging
 import os
+import re
 import requests
 import time
 from datetime import datetime, timedelta
+from fastapi import HTTPException
 from pydantic import BaseModel
 
 logger = logging.getLogger()
@@ -81,3 +84,12 @@ class IngestPayload(BaseModel):
     repo: str
     branch_suffix: str
     files: list[File]
+
+def validate_ingest_payload(payload: IngestPayload):
+    for allowed_payload in json.loads(os.environ["ALLOWED_INGEST_PAYLOADS"]):
+        if re.match(allowed_payload["repo"], payload.repo) and re.match(allowed_payload["branch_suffix"], payload.branch_suffix):
+            for file in payload.files:
+                if not re.match(allowed_payload["files"]["path"], file.path) or not re.match(allowed_payload["files"]["content"], file.content):
+                    raise HTTPException(status_code=400, detail=f"File {file.path} does not match allowed regex")
+            return True
+    raise HTTPException(status_code=400, detail=f"Payload does not match allowed regex")
