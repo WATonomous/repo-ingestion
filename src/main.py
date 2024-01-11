@@ -9,13 +9,12 @@ app = FastAPI()
 
 @app.on_event("startup")
 async def startup_event():
-    # Set up logging
     set_up_logging()
     logger.info(f"Logging configured with level {logger.level} ({logging.getLevelName(logger.level)})")
 
-@app.get("/")
+@app.get("/health")
 def read_root():
-    return {"Hello": "World", "GITHUB_TOKEN": get_github_token()}
+    return {"status": "ok"}
 
 @app.post("/ingest")
 def ingest(payload: IngestPayload):
