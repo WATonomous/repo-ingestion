@@ -4,8 +4,11 @@ import os
 import requests
 import time
 from datetime import datetime, timedelta
+from pydantic import BaseModel
 
 logger = logging.getLogger()
+
+branch_prefix = "repo-ingestion-"
 
 def set_up_logging():
     log_level = os.environ.get("APP_LOG_LEVEL", "INFO")
@@ -69,3 +72,12 @@ def get_github_token():
 
     logger.debug(f"Generated new token. Expires at {github_token_cache['expires_at']}")
     return github_token_cache["token"]
+
+class File(BaseModel):
+    path: str
+    content: str
+
+class IngestPayload(BaseModel):
+    repo: str
+    branch_suffix: str
+    files: list[File]
