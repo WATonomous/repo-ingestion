@@ -93,3 +93,39 @@ def validate_ingest_payload(payload: IngestPayload):
                     raise HTTPException(status_code=400, detail=f"File {file.path} does not match allowed regex")
             return True
     raise HTTPException(status_code=400, detail=f"Payload does not match allowed regex")
+
+def compare_line_by_line(str1, str2):
+    """
+    Compare two strings line by line. This is useful for comparing strings that may have different line endings.
+    """
+    return str1.splitlines() == str2.splitlines()
+
+pr_body_prefix = "<!-- This section is manged by repo-ingestion-bot. Please Do not edit manually! -->"
+pr_body_postfix = "<!-- End of section managed by repo-ingestion-bot -->"
+
+def wrap_pr_body(body):
+    """
+    Wrap the PR body with the prefix and postfix.
+    """
+    return "\n\n" + pr_body_prefix + "\n" + body + "\n" + pr_body_postfix + "\n\n"
+
+def extract_pr_body(body):
+    """
+    Extract the PR body from the prefix and postfix.
+    """
+    if not body or pr_body_prefix not in body or pr_body_postfix not in body:
+        return ""
+
+    return body.split(pr_body_prefix)[1].split(pr_body_postfix)[0]
+
+def update_pr_body(body, new_body):
+    """
+    Update the PR body with the new body.
+    """
+    if not body:
+        return wrap_pr_body(new_body)
+
+    if pr_body_prefix not in body or pr_body_postfix not in body:
+        return body + wrap_pr_body(new_body)
+    
+    return body.split(pr_body_prefix)[0].rstrip() + wrap_pr_body(new_body) + body.split(pr_body_postfix)[1].lstrip()
