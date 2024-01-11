@@ -1,0 +1,17 @@
+version: '3'
+
+services:
+  main-dev:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - GITHUB_APP_ID=${GITHUB_APP_ID:?}
+      - GITHUB_APP_INSTALLATION_ID=${GITHUB_APP_INSTALLATION_ID:?}
+      - GITHUB_APP_PRIVATE_KEY_PATH=/secrets/github-app-private-key.pem
+      - APP_LOG_LEVEL=DEBUG
+    volumes:
+      - ./src:/app:ro
+      - ${GITHUB_APP_PRIVATE_KEY_PATH:?}:/secrets/github-app-private-key.pem:ro
+    command: 
+      - "--reload"
