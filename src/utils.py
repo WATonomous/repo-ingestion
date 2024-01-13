@@ -5,7 +5,9 @@ import os
 import re
 import requests
 import time
+import yaml
 from datetime import datetime, timedelta
+from enum import Enum
 from fastapi import HTTPException
 from pydantic import BaseModel
 
@@ -76,9 +78,17 @@ def get_github_token():
     logger.debug(f"Generated new token. Expires at {github_token_cache['expires_at']}")
     return github_token_cache["token"]
 
+class TransformType(str, Enum):
+    json2yaml = "json2yaml"
+    yaml2json = "yaml2json"
+
+class Transform(BaseModel):
+    type: TransformType
+
 class File(BaseModel):
     path: str
     content: str
+    transforms: list[Transform] = []
 
 class IngestPayload(BaseModel):
     repo: str
@@ -129,3 +139,41 @@ def update_pr_body(body, new_body):
         return body + wrap_pr_body(new_body)
     
     return body.split(pr_body_prefix)[0].rstrip() + wrap_pr_body(new_body) + body.split(pr_body_postfix)[1].lstrip()
+
+def json2yaml(json_str: str):
+    """
+    Convert JSON to YAML.
+    """
+    return yaml.dump(json.loads(json_str), width=float('inf'))
+
+def yaml2json(yaml_str: str):
+    """
+    Convert YAML to JSON.
+    """
+    return json.dumps(yaml.safe_load(yaml_str))
+
+def transform_file(file: File) -> File:
+    """
+    Transform a file according to its transforms. Mutates `file`.
+    """
+    content = file.content
+    for transform in file.transforms:
+        if transform.type == TransformType.json2yaml:
+            content = json2yaml(content)
+        elif transform.type == TransformType.yaml2json:
+            content = yaml2json(content)
+        else:
+            raise HTTPException(status_code=500, detail=f"Unknown transform type {transform.type}")
+    file.content = content
+    return file
+
+def assert_throws(func, exception_class, message=None):
+    """
+    Assert that a function throws an exception.
+    """
+    try:
+        func()
+    except exception_class:
+        pass
+    else:
+        raise AssertionError(message or f"{func} did not throw {exception_class}")

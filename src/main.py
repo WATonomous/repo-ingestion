@@ -1,5 +1,6 @@
 import logging
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from github import Github
 from github.GithubException import GithubException
 from textwrap import dedent
@@ -13,10 +14,24 @@ from utils import (
     extract_pr_body,
     update_pr_body,
     compare_line_by_line,
+    assert_throws,
+    transform_file,
 )
 
-
 app = FastAPI()
+
+# Add CORS for local development. In production, this is handled by the reverse proxy.
+origins = [
+    "http://localhost:3000",
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 @app.on_event("startup")
 async def startup_event():
@@ -33,6 +48,10 @@ def ingest(payload: IngestPayload):
     Ingests a payload and creates a PR.
     """
     validate_ingest_payload(payload)
+
+    # Perform transformations
+    for file in payload.files:
+        transform_file(file)
 
     g = Github(get_github_token())
     logger.info(f"GitHub rate limit remaining: {g.rate_limiting[0]} / {g.rate_limiting[1]}")
@@ -73,9 +92,10 @@ def ingest(payload: IngestPayload):
             repo.create_file(file.path, f"Create or update {file.path}", file.content, branch=branch_name)
 
     # Create PR
-    logger.info(f"Creating PR from {branch_name} to {default_branch.name}...")
+    pr_head = f"{repo.organization.login}:{branch_name}"
+    logger.info(f"Creating PR from {pr_head} to {default_branch.name}...")
     file_list = "".join([f"* {file.path}\n" for file in payload.files])
-    pr_title = f"Create or update files: {branch_name}"
+    pr_title = f"Create or update files: {pr_head}"
     pr_body = dedent(f"""
         ### Introduction
 
@@ -85,15 +105,17 @@ def ingest(payload: IngestPayload):
 
     """) + file_list
     try:
-        pr = repo.get_pulls(head=branch_name, base=default_branch.name)[0]
+        prs = repo.get_pulls(head=pr_head, base=default_branch.name)
+        pr = prs[0]
+        assert_throws(lambda: prs[1], IndexError, f"Expected only one PR from {pr_head} to {default_branch.name}, but found more than one")
         if pr.title == pr_title and compare_line_by_line(extract_pr_body(pr.body).strip(), pr_body.strip()):
-            logger.info(f"PR from {branch_name} to {default_branch.name} already exists and is up to date")
+            logger.info(f"PR from {pr_head} to {default_branch.name} already exists (#{pr.number}) and is up to date")
         else:
-            logger.info(f"PR from {branch_name} to {default_branch.name} already exists but is out of date. Updating...")
+            logger.info(f"PR from {pr_head} to {default_branch.name} already exists (#{pr.number}) but is out of date. Updating...")
             pr.edit(title=pr_title, body=update_pr_body(pr.body, pr_body))
     except IndexError:
-        logger.info(f"PR from {branch_name} to {default_branch.name} does not exist. Creating...")
-        pr = repo.create_pull(title=pr_title, body=update_pr_body("", pr_body), head=branch_name, base=default_branch.name)
+        logger.info(f"PR from {pr_head} to {default_branch.name} does not exist. Creating...")
+        pr = repo.create_pull(title=pr_title, body=update_pr_body("", pr_body), head=pr_head, base=default_branch.name)
 
     logger.info(f"GitHub rate limit remaining: {g.rate_limiting[0]} / {g.rate_limiting[1]}")
 
