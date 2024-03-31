@@ -142,12 +142,7 @@ def ingest(payload: IngestPayload):
             existing_file = None
 
         if existing_file:
-            # Compare the content to see if we need to update
-            if existing_file.decoded_content.decode() == file.content:
-                logger.info(f"File {file.path} already exists and is up to date")
-            else:
-                logger.info(f"File {file.path} already exists but is out of date. Updating...")
-                repo.update_file(existing_file.path, f"Create or update {file.path}", file.content, existing_file.sha, branch=branch_name)
+            repo.update_file(existing_file.path, f"Create or update {file.path}", file.content, existing_file.sha, branch=branch_name)
         else:
             logger.info(f"File {file.path} does not exist. Creating...")
             repo.create_file(file.path, f"Create or update {file.path}", file.content, branch=branch_name)
