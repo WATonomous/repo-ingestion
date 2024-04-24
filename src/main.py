@@ -2,11 +2,13 @@ import json
 import logging
 import os
 import sentry_sdk
+import time
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from github import Github
 from github.GithubException import GithubException
 from sentry_sdk.integrations.logging import LoggingIntegration
+from sentry_sdk.crons import monitor
 from textwrap import dedent
 from utils import (
     set_up_logging,
@@ -26,21 +28,22 @@ from utils import (
 # It looks like:
 # {"tags":["ghcr.io/watonomous/repo-ingestion:main"],"labels":{"org.opencontainers.image.title":"repo-ingestion","org.opencontainers.image.description":"Simple server to receive file changes and open GitHub pull requests","org.opencontainers.image.url":"https://github.com/WATonomous/repo-ingestion","org.opencontainers.image.source":"https://github.com/WATonomous/repo-ingestion","org.opencontainers.image.version":"main","org.opencontainers.image.created":"2024-01-20T16:10:39.421Z","org.opencontainers.image.revision":"1d55b62b15c78251e0560af9e97927591e260a98","org.opencontainers.image.licenses":""}}
 BUILD_INFO=json.loads(os.getenv("DOCKER_METADATA_OUTPUT_JSON", "{}"))
-
+IS_SENTRY_ENABLED = os.getenv("SENTRY_DSN") is not None
 
 # Set up Sentry
-if os.getenv("SENTRY_DSN"):
+if IS_SENTRY_ENABLED:
     build_labels = BUILD_INFO.get("labels", {})
     image_title = build_labels.get("org.opencontainers.image.title", "unknown_image")
     image_version = build_labels.get("org.opencontainers.image.version", "unknown_version")
     image_rev = build_labels.get("org.opencontainers.image.revision", "unknown_rev")
 
     sentry_config = {
-        "dsn": os.getenv("SENTRY_DSN"),
+        "dsn": os.environ["SENTRY_DSN"],
         "environment": os.getenv("DEPLOYMENT_ENVIRONMENT", "unknown"),
         "release": os.getenv("SENTRY_RELEASE", f'{image_title}:{image_version}@{image_rev}'),
     }
 
+    print(f"Sentry SDK version: {sentry_sdk.VERSION}")
     print(f"Sentry DSN found. Setting up Sentry with config: {sentry_config}")
 
     sentry_logging = LoggingIntegration(
@@ -76,6 +79,11 @@ else:
     print("No Sentry DSN found. Skipping Sentry setup.")
 
 app = FastAPI()
+state = {
+    "sentry_cron_last_ping_time": 0,
+    "num_ingest_requests_received": 0,
+    "num_ingest_requests_success": 0,
+}
 
 # Add CORS for local development. In production, this is handled by the reverse proxy.
 origins = [
@@ -96,18 +104,48 @@ async def startup_event():
     logger.info(f"Logging configured with level {logger.level} ({logging.getLevelName(logger.level)})")
 
 @app.get("/health")
-def read_root():
+def read_health():
+    current_time = time.time()
+    # Ping Sentry at least every minute. Using a 30s buffer to be safe.
+    if IS_SENTRY_ENABLED and current_time - state["sentry_cron_last_ping_time"] > 30:
+        state["sentry_cron_last_ping_time"] = current_time
+        ping_sentry()
+
     return {"status": "ok"}
+
+# Sentry CRON docs: https://docs.sentry.io/platforms/python/crons/
+@monitor(monitor_slug='repo-ingestion', monitor_config={
+    "schedule": { "type": "interval", "value": 1, "unit": "minute" },
+    "checkin_margin": 5, # minutes
+    "max_runtime": 1, # minutes
+    "failure_issue_threshold": 1,
+    "recovery_threshold": 2,
+})
+def ping_sentry():
+    logger.info("Pinged Sentry CRON")
 
 @app.get("/build-info")
 def read_build_info():
     return BUILD_INFO
+
+@app.get("/runtime-info")
+def read_runtime_info():
+    return {
+        "sentry_enabled": IS_SENTRY_ENABLED,
+        "sentry_sdk_version": sentry_sdk.VERSION,
+        "deployment_environment": os.getenv("DEPLOYMENT_ENVIRONMENT", "unknown"),
+        "sentry_cron_last_ping_time": state["sentry_cron_last_ping_time"],
+        "num_ingest_requests_received": state["num_ingest_requests_received"],
+        "num_ingest_requests_success": state["num_ingest_requests_success"],
+    }
 
 @app.post("/ingest")
 def ingest(payload: IngestPayload):
     """
     Ingests a payload and creates a PR.
     """
+    state["num_ingest_requests_received"] += 1
+
     validate_ingest_payload(payload)
 
     # Perform transformations
@@ -176,6 +214,8 @@ def ingest(payload: IngestPayload):
         pr = repo.create_pull(title=pr_title, body=update_pr_body("", pr_body), head=pr_head, base=default_branch.name)
 
     logger.info(f"GitHub rate limit remaining: {g.rate_limiting[0]} / {g.rate_limiting[1]}")
+
+    state["num_ingest_requests_success"] += 1
 
     return {
         "pr_url": pr.html_url,
