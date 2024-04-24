@@ -8,5 +8,5 @@ This is a simple server that takes in files and creates GitHub pull requests.
 
 2. Run the server in development mode:
   ```bash
-  docker compose up
+  docker compose up --build
   ```
