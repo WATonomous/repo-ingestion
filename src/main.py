@@ -37,7 +37,7 @@ if os.getenv("SENTRY_DSN"):
 
     sentry_config = {
         "dsn": os.getenv("SENTRY_DSN"),
-        "environment": os.getenv("SENTRY_ENVIRONMENT", "unknown"),
+        "environment": os.getenv("DEPLOYMENT_ENVIRONMENT", "unknown"),
         "release": os.getenv("SENTRY_RELEASE", f'{image_title}:{image_version}@{image_rev}'),
     }
 

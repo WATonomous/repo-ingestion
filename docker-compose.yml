@@ -12,7 +12,7 @@ services:
       - ALLOWED_INGEST_PAYLOADS=${ALLOWED_INGEST_PAYLOADS:?}
       - APP_LOG_LEVEL=DEBUG
       - SENTRY_DSN=${SENTRY_DSN:?}
-      - SENTRY_ENVIRONMENT=dev
+      - DEPLOYMENT_ENVIRONMENT=dev
     volumes:
       - ./src:/app:ro
       - ${GITHUB_APP_PRIVATE_KEY_PATH:?}:/secrets/github-app-private-key.pem:ro
