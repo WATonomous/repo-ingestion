@@ -8,7 +8,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from github import Github
 from github.GithubException import GithubException
 from sentry_sdk.integrations.logging import LoggingIntegration
-from sentry_sdk.crons import monitor
+from sentry_sdk.crons import capture_checkin
+from sentry_sdk.crons.consts import MonitorStatus
 from textwrap import dedent
 from utils import (
     set_up_logging,
@@ -106,23 +107,24 @@ async def startup_event():
 @app.get("/health")
 def read_health():
     current_time = time.time()
-    # Ping Sentry at least every minute. Using a 30s buffer to be safe.
-    if IS_SENTRY_ENABLED and current_time - state["sentry_cron_last_ping_time"] > 30:
+    success = True
+    # Assuming the /health endpoint is called every 10 seconds, ping Sentry about once every minute.
+    if IS_SENTRY_ENABLED and current_time - state["sentry_cron_last_ping_time"] > 50:
         state["sentry_cron_last_ping_time"] = current_time
-        ping_sentry()
+        capture_checkin(
+            monitor_slug='repo-ingestion',
+            status=MonitorStatus.OK if success else MonitorStatus.ERROR,
+            monitor_config={
+                "schedule": { "type": "interval", "value": 1, "unit": "minute" },
+                "checkin_margin": 5, # minutes
+                "max_runtime": 1, # minutes
+                "failure_issue_threshold": 1,
+                "recovery_threshold": 2,
+            }
+        )
+        logging.info(f"Pinged Sentry CRON with status {'OK' if success else 'ERROR'}")
 
     return {"status": "ok"}
-
-# Sentry CRON docs: https://docs.sentry.io/platforms/python/crons/
-@monitor(monitor_slug='repo-ingestion', monitor_config={
-    "schedule": { "type": "interval", "value": 1, "unit": "minute" },
-    "checkin_margin": 5, # minutes
-    "max_runtime": 1, # minutes
-    "failure_issue_threshold": 1,
-    "recovery_threshold": 2,
-})
-def ping_sentry():
-    logger.info("Pinged Sentry CRON")
 
 @app.get("/build-info")
 def read_build_info():
