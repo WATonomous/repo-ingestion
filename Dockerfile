@@ -1,7 +1,8 @@
 ARG TARGETPLATFORM
+ARG BUILDPLATFORM
 
-# Normalize the TARGETPLATFORM by replacing slashes
-ARG NORMALIZED_TARGETPLATFORM=${TARGETPLATFORM//\//-}
+# Normalize the platform by replacing slashes
+ARG NORMALIZED_PLATFORM=${TARGETPLATFORM:-${BUILDPLATFORM}//\//-}
 
 FROM alpine:3.19.3@sha256:8d733e27df31ac40ec64633002a200a0aed5477866730e0bfeb8d2dec5d8e76a AS base-linux-amd64
 FROM alpine:3.19.3@sha256:6f8cacb1dbb6ea4606dfaa23b6b8b1692a4e63cc9c2f91b943cff7deccab8792 AS base-linux-arm64
