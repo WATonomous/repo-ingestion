@@ -177,3 +177,54 @@ def assert_throws(func, exception_class, message=None):
         pass
     else:
         raise AssertionError(message or f"{func} did not throw {exception_class}")
+
+
+def fetch_github_node_id(username: str, token: str) -> str | None:
+    """Fetch global_node_id for a GitHub username."""
+    try:
+        resp = requests.get(
+            f"https://api.github.com/users/{username}",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "X-Github-Next-Global-ID": "1"
+            }
+        )
+        if resp.ok:
+            return resp.json().get('node_id')
+        logger.warning(f"Failed to fetch node_id for {username}: {resp.status_code}")
+        return None
+    except Exception as e:
+        logger.error(f"Error fetching node_id for {username}: {e}")
+        return None
+
+
+def inject_github_node_ids(file: File, token: str) -> File:
+    """Inject global_node_id for github and internal_tools if missing."""
+    if not file.path.startswith("directory/users/data/"):
+        return file
+
+    data = yaml.safe_load(file.content)
+    modified = False
+
+    # github.global_node_id
+    gh_username = data.get('github', {}).get('username')
+    if gh_username and not data.get('github', {}).get('global_node_id'):
+        node_id = fetch_github_node_id(gh_username, token)
+        if node_id:
+            data['github']['global_node_id'] = node_id
+            modified = True
+            logger.info(f"Injected github.global_node_id for {gh_username}")
+
+    # internal_tools.global_node_id
+    it_username = data.get('internal_tools', {}).get('github_username')
+    if it_username and not data.get('internal_tools', {}).get('global_node_id'):
+        node_id = fetch_github_node_id(it_username, token)
+        if node_id:
+            data['internal_tools']['global_node_id'] = node_id
+            modified = True
+            logger.info(f"Injected internal_tools.global_node_id for {it_username}")
+
+    if modified:
+        file.content = yaml.dump(data, width=float('inf'))
+
+    return file
